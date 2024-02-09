@@ -1,5 +1,22 @@
-import numpy as np
-from crnn import NeuralNet
+try:
+    # Try to import CuPy
+    import cupy as cp
+    # Attempt to allocate memory on a GPU to confirm its presence
+    cp.array([1])
+    # If successful, alias CuPy as np to use it as if it were NumPy
+    np = cp
+    print("Using CuPy")
+except (ImportError):
+    # If CuPy is not installed, fall back to NumPy
+    import numpy as np
+    print("CuPy not found, using NumPy")
+except (cp.cuda.runtime.CUDARuntimeError):
+    # If no GPU is found, fall back to NumPy
+    import numpy as np
+    print("No GPU found, using NumPy")
+
+from neural_net import NeuralNet
+from layers import Layer, RGLayer
 from concurrent.futures import ProcessPoolExecutor
 from activation import Activation
 import time
@@ -106,22 +123,23 @@ def score_output(output, sequence, correct_length_score=0.25, correct_value_scor
 def sigmoid_forward(x):
     return 1/(1+np.exp(-x))
 
-def linear_forward(x):
-    return x
+def softmax_forward(x):
+    exps = np.exp(x - np.max(x))
+    return exps / np.sum(exps, axis=0)
 
 class Training:
     def __init__(self, network_count=100):
         self.networks = []
         self.network_count = network_count
         sigmoid = Activation(forward=sigmoid_forward)
-        linear = Activation(forward=linear_forward)
+        softmax = Activation(forward=softmax_forward)
         for i in range(network_count):
-            self.networks.append(NeuralNet(5, 50, 5, hidden_activation=sigmoid, output_activation=linear))
+            self.networks.append(NeuralNet(5, (50, RGLayer, sigmoid), (5, Layer, softmax)))
 
     def train_network(self, network_index, inputs, original_sequences, ticks, batch_size):
         network = self.networks[network_index]
-        network.reset_batch(batch_size)
-        output = network.batch_forward_n_times(ticks, inputs, softmax_output=True)
+        network.initialize(batch_size)
+        output = network.batch_forward_n_times(inputs, ticks)
         # remove first 25 outputs
         output = output[25:]
         total_score = sum(score_output(output[j], original_sequences[j]) for j in range(batch_size))
@@ -143,7 +161,7 @@ class Training:
             else:
                 print(f"Training network {i+1}/{self.network_count}")
             for j in range(shots):
-                output = network.forward_n_times(ticks, inputs[j], softmax_output=True)
+                output = network.forward_n_times(inputs[j], ticks)
                 # remove first 25 outputs
                 output = output[25:]
                 total_score = 0
@@ -180,7 +198,7 @@ class Training:
         scores = np.zeros(self.network_count)
         for i, network in enumerate(self.networks):
             network.reset_batch(batch_size)
-            output = network.batch_forward_n_times(ticks, inputs, softmax_output=True)
+            output = network.batch_forward_n_times(inputs, ticks)
             # remove first 25 outputs
             output = output[25:]
             total_score = 0
