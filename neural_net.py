@@ -1,19 +1,19 @@
-try:
-    # Try to import CuPy
-    import cupy as cp
-    # Attempt to allocate memory on a GPU to confirm its presence
-    cp.array([1])
-    # If successful, alias CuPy as np to use it as if it were NumPy
-    np = cp
-except (ImportError):
-    # If CuPy is not installed, fall back to NumPy
-    import numpy as np
-except (cp.cuda.runtime.CUDARuntimeError):
-    # If no GPU is found, fall back to NumPy
-    import numpy as np
+# try:
+#     # Try to import CuPy
+#     import cupy as cp
+#     # Attempt to allocate memory on a GPU to confirm its presence
+#     cp.array([1])
+#     # If successful, alias CuPy as np to use it as if it were NumPy
+#     np = cp
+# except (ImportError):
+#     # If CuPy is not installed, fall back to NumPy
+#     import numpy as np
+# except (cp.cuda.runtime.CUDARuntimeError):
+#     # If no GPU is found, fall back to NumPy
+import numpy as np
 
 
-from layers import Layer
+from layers import Layer, BatchedLayer
 from activation import Activation
 from typing import Tuple, Type
 
@@ -154,3 +154,103 @@ class NeuralNet:
         for i, layer in enumerate(new_net.layers):
             layer.crossover(other.layers[i])
         return new_net
+
+class BatchedNeuralNet:
+    def __init__(self, input_size, *layers: Tuple[int, Type[BatchedLayer], Activation]):
+        self.input_size = input_size
+        layer_sizes = [input_size] + [layer[0] for layer in layers]
+        self.layers = [layer[1](layer_sizes[i], layer_sizes[i+1], layer[2]) for i, layer in enumerate(layers)]
+        self.output_size = layer_sizes[-1]
+
+    def copy(self):
+        new_net = BatchedNeuralNet(self.input_size, *[(layer.neuron_count, layer.__class__, layer.activation_function) for layer in self.layers])
+        for i, layer in enumerate(new_net.layers):
+            layer = self.layers[i].copy()
+        return new_net
+    
+    def initialize(self, batch_size):
+        for layer in self.layers:
+            layer.initialize(batch_size)
+
+    def batch_forward(self, inputs):
+        """
+        Perform a forward pass through the neural networks for a batch of inputs.
+
+        Args:
+            inputs: The input data for the batch.
+
+        Returns:
+            The output of the neural network after the forward pass.
+        """
+        for layer in self.layers:
+            inputs = layer.batch_forward(inputs)
+        return inputs
+    
+    def batch_forward_n_times(self, inputs, n):
+        """
+        Perform forward propagation through the neural network n times for a batch of inputs.
+
+        Args:
+            inputs: The input data for the batch.
+            n (int): The number of times to perform forward propagation.
+
+        Returns:
+            The output of the neural network for every forward pass.
+        """
+        outputs = []
+        for i in range(n):
+            output = self.batch_forward(inputs[i])
+            outputs.append(output)
+        return outputs
+    
+    def mutate(self, weight_mutation_rate=0.1, weight_mutation_strength=0.1, bias_mutation_rate=0.1, bias_mutation_strength=0.1, *, cooldown_mutation_rate=0.1, cooldown_mutation_strength=1):
+        """
+        Mutates the neural network by applying random mutations to the weights and biases of its layers.
+
+        Parameters:
+        - weight_mutation_rate (float): The probability of mutating each weight value.
+        - weight_mutation_strength (float): The maximum magnitude of the weight mutation.
+        - bias_mutation_rate (float): The probability of mutating each bias value.
+        - bias_mutation_strength (float): The maximum magnitude of the bias mutation.
+        - cooldown_mutation_rate (float): The probability of mutating the cooldown valus (applicable only to RGLayer).
+        - cooldown_mutation_strength (float): The maximum magnitude of the cooldown mutations (applicable only to RGLayer).
+        """
+        for layer in self.layers:
+            if layer.__class__.__name__ == 'RGLayer':
+                layer.mutate(weight_mutation_rate, weight_mutation_strength, bias_mutation_rate, bias_mutation_strength, cooldown_mutation_rate, cooldown_mutation_strength)
+            else:
+                layer.mutate(weight_mutation_rate, weight_mutation_strength, bias_mutation_rate, bias_mutation_strength)
+
+    @staticmethod
+    def batch_networks(*networks):
+        """
+        Creates a new neural network by combining multiple neural networks into a single batched neural network.
+
+        Args:
+            *networks (NeuralNet): Variable-length argument list of neural networks to combine.
+
+        Returns:
+            BatchedNeuralNet: The new batched neural network created by combining the input neural networks.
+        """
+        input_size = networks[0].input_size
+        if not all(network.input_size == input_size for network in networks):
+            raise ValueError("All networks must have the same input size")
+        batched_network = BatchedNeuralNet(input_size, *[(networks[0].layers[i].neuron_count, networks[0].layers[i].__class__, networks[0].layers[i].activation_function) for i in range(len(networks[0].layers))])
+        layers = []
+        for i in range(len(networks[0].layers)):
+            batched_layer = BatchedLayer.batch_layers(*[network.layers[i] for network in networks])
+            layers.append((batched_layer.neuron_count, batched_layer.__class__, batched_layer.activation_function))
+        batched_network.layers = layers
+        return batched_network
+    
+    def unbatch(self):
+        """
+        Unbatches the batched neural network into a list of individual neural networks.
+
+        Returns:
+            list: A list of individual neural networks.
+        """
+        networks = [NeuralNet(self.input_size, *[(layer.neuron_count, layer.__class__, layer.activation_function) for layer in self.layers]) for _ in range(len(self.layers))]
+        for i, network in enumerate(networks):
+            network.layers = [layer.unbatch() for layer in self.layers[i]]
+        return networks

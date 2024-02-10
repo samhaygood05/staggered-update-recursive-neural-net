@@ -1,16 +1,16 @@
-try:
-    # Try to import CuPy
-    import cupy as cp
-    # Attempt to allocate memory on a GPU to confirm its presence
-    cp.array([1])
-    # If successful, alias CuPy as np to use it as if it were NumPy
-    np = cp
-except (ImportError):
-    # If CuPy is not installed, fall back to NumPy
-    import numpy as np
-except (cp.cuda.runtime.CUDARuntimeError):
-    # If no GPU is found, fall back to NumPy
-    import numpy as np
+# try:
+#     # Try to import CuPy
+#     import cupy as cp
+#     # Attempt to allocate memory on a GPU to confirm its presence
+#     cp.array([1])
+#     # If successful, alias CuPy as np to use it as if it were NumPy
+#     np = cp
+# except (ImportError):
+#     # If CuPy is not installed, fall back to NumPy
+#     import numpy as np
+# except (cp.cuda.runtime.CUDARuntimeError):
+#     # If no GPU is found, fall back to NumPy
+import numpy as np
 
 class Layer:
     """
@@ -269,3 +269,197 @@ class RGLayer(Layer):
         new_layer.initial_cooldowns = np.where(np.random.randint(0, 2, self.neuron_count), self.initial_cooldowns, other.initial_cooldowns)
         new_layer.max_cooldowns = np.where(np.random.randint(0, 2, self.neuron_count), self.max_cooldowns, other.max_cooldowns)
         return new_layer
+    
+class BatchedLayer:
+    def __init__(self, input_size, neuron_count, batch_size, activation_function):
+        self.input_size = input_size
+        self.neuron_count = neuron_count
+        self.batch_size = batch_size
+        self.activation_function = activation_function
+
+        self.w1 = np.random.uniform(-1, 1, (input_size, neuron_count, batch_size))
+        self.bias = np.random.uniform(-1, 1, (neuron_count, batch_size))
+
+    def copy(self):
+        new_layer = BatchedLayer(self.input_size, self.neuron_count, self.batch_size, self.activation_function)
+        new_layer.w1 = self.w1.copy()
+        new_layer.bias = self.bias.copy()
+        return new_layer
+    
+    def initialize(self, batch_size=None):
+        pass
+
+    def batch_forward(self, value):
+        """
+        Perform a forward pass on a batch of input values, optimized for parallel network processing.
+
+        Args:
+            value (numpy.ndarray): The input values, with shape (batch_size, input_size).
+
+        Returns:
+            numpy.ndarray: The output values after applying the layer's activation function, with shape (batch_size, output_size, num_networks).
+        """
+        if len(value.shape) == 1:
+            value = value.reshape(1, -1)
+        if value.shape[1] != self.input_size:
+            raise ValueError("Input size does not match layer input size")
+
+        # Assuming self.w1 shape is (input_size, neuron_count, num_networks) and self.bias shape is (neuron_count, num_networks)
+        # Adjust dimensions of value for broadcasting: (batch_size, input_size, 1)
+        value_expanded = value[:, :, np.newaxis]
+
+        # Dot product and add bias, utilizing broadcasting for parallel networks
+        output = np.dot(value_expanded, self.w1) + self.bias
+
+        # Apply activation function across all networks in parallel
+        return self.activation_function.batch_forward(output)
+    
+    def mutate(self, weight_mutation_rate=0.1, weight_mutation_strength=0.1, bias_mutation_rate=0.1, bias_mutation_strength=0.1):
+        if np.random.uniform(0, 1) < weight_mutation_rate:
+            self.w1 += np.random.uniform(-weight_mutation_strength, weight_mutation_strength, (self.input_size, self.neuron_count, self.batch_size))
+        if np.random.uniform(0, 1) < bias_mutation_rate:
+            self.bias += np.random.uniform(-bias_mutation_strength, bias_mutation_strength, (self.neuron_count, self.batch_size))
+
+    @staticmethod
+    def batch_layers(*layers: 'Layer'):
+        """
+        Converts a list of layers to a batched layer.
+
+        Args:
+            layers (Layer): The layers to be batched.
+
+        Returns:
+            BatchedLayer: A batched layer that functions as multiple parallel networks.
+        """
+        # the networks must have the same input size, neuron count, and activation function, and must be of the same type
+        if not all(layer.input_size == layers[0].input_size and layer.neuron_count == layers[0].neuron_count and layer.activation_function == layers[0].activation_function and type(layer) == type(layers[0]) for layer in layers):
+            raise ValueError("All layers must have the same input size, neuron count, and type")
+        # the batch size is the number of networks
+        input_size = layers[0].input_size
+        neuron_count = layers[0].neuron_count
+        batch_size = len(layers)
+        activation_function = layers[0].activation_function
+        # make sure all layers are not subclasses of Layer and are only Layer. We already checked that they are of the same type, so checking the first one is enough
+        if type(layers[0]) == Layer:
+            batched_layer = BatchedLayer(input_size, neuron_count, batch_size, activation_function)
+            batched_layer.w1 = np.stack([layer.w1 for layer in layers], axis=-1)
+            batched_layer.bias = np.stack([layer.bias for layer in layers], axis=-1)
+            return batched_layer
+        elif type(layers[0]) == RGLayer:
+            batched_layer = RGLayerBatched(input_size, neuron_count, batch_size, activation_function)
+            batched_layer.w1 = np.stack([layer.w1 for layer in layers], axis=-1)
+            batched_layer.w2 = np.stack([layer.w2 for layer in layers], axis=-1)
+            batched_layer.bias = np.stack([layer.bias for layer in layers], axis=-1)
+            batched_layer.stored_values = np.stack([layer.stored_values for layer in layers], axis=-1)
+            batched_layer.propagating_values = np.stack([layer.propagating_values for layer in layers], axis=-1)
+            batched_layer.max_cooldowns = np.stack([layer.max_cooldowns for layer in layers], axis=-1)
+            batched_layer.initial_cooldowns = np.stack([layer.initial_cooldowns for layer in layers], axis=-1)
+            batched_layer.current_cooldowns = np.stack([layer.current_cooldowns for layer in layers], axis=-1)
+            return batched_layer
+        else:
+            raise ValueError("That type of layer is not supported for batching yet")
+        
+    def unbatch(self):
+        """
+        Converts a batched layer to a list of layers.
+
+        Returns:
+            list: A list of layers that were batched.
+        """
+        layers = [Layer(self.input_size, self.neuron_count, self.activation_function) for _ in range(self.batch_size)]
+        for i in range(self.batch_size):
+            layers[i].w1 = self.w1[:, :, i]
+            layers[i].bias = self.bias[:, i]
+        return layers
+
+        
+
+class RGLayerBatched(BatchedLayer):
+    def __init__(self, input_size, neuron_count, batch_size, activation_function):
+        super().__init__(input_size, neuron_count, batch_size, activation_function)
+
+        self.w2 = np.random.uniform(-1, 1, (neuron_count, neuron_count, batch_size))
+        self.stored_values = np.zeros((neuron_count, batch_size))
+        self.propagating_values = np.zeros((neuron_count, batch_size))
+        self.max_cooldowns = np.random.randint(0, 10, (neuron_count, batch_size))
+        self.initial_cooldowns = np.random.randint(0, 10, (neuron_count, batch_size))
+        self.current_cooldowns = self.initial_cooldowns.copy()
+
+    def copy(self):
+        new_layer = RGLayerBatched(self.input_size, self.neuron_count, self.batch_size, self.activation_function)
+        new_layer.w1 = self.w1.copy()
+        new_layer.w2 = self.w2.copy()
+        new_layer.bias = self.bias.copy()
+        new_layer.stored_values = self.stored_values.copy()
+        new_layer.propagating_values = self.propagating_values.copy()
+        new_layer.max_cooldowns = self.max_cooldowns.copy()
+        new_layer.initial_cooldowns = self.initial_cooldowns.copy()
+        new_layer.current_cooldowns = self.current_cooldowns.copy()
+        return new_layer
+
+    def initialize(self, batch_size=None):
+        if batch_size is None:
+            self.stored_values = np.zeros((self.neuron_count, self.batch_size))
+            self.propagating_values = np.zeros((self.neuron_count, self.batch_size))
+        else:
+            self.stored_values = np.zeros((batch_size, self.neuron_count, self.batch_size))
+            self.propagating_values = np.zeros((batch_size, self.neuron_count, self.batch_size))
+
+    def batch_forward(self, value):
+        """
+        Perform a forward pass for a batch of input values through the layer, optimized for parallel network processing with cooldowns.
+
+        Args:
+            value (numpy.ndarray): The input values for the layer.
+
+        Returns:
+            numpy.ndarray: The output values after applying the activation function.
+        """
+        if len(value.shape) == 1:
+            value = value.reshape(1, -1)
+        if value.shape[1] != self.input_size:
+            raise ValueError("Input size does not match layer input size")
+
+        # Vectorized operations for cooldown logic
+        cooldown_zero_mask = self.current_cooldowns == 0
+        self.propagating_values[:, cooldown_zero_mask] = self.stored_values[:, cooldown_zero_mask]
+
+        # Prepare values for dot product by expanding for broadcasting if necessary
+        value_expanded = value[:, :, np.newaxis]  # Adjust if your structure requires
+
+        # Efficiently compute dot products and update stored values with vectorized operations
+        self.stored_values[:, cooldown_zero_mask] = (np.dot(value_expanded, self.w1[:, cooldown_zero_mask])
+                                                    + np.dot(self.propagating_values, self.w2[:, cooldown_zero_mask])
+                                                    + self.bias[cooldown_zero_mask])
+
+        # Decrement cooldowns and reset appropriately
+        self.current_cooldowns -= 1
+        self.current_cooldowns[self.current_cooldowns == -1] = self.max_cooldowns[self.current_cooldowns == -1]
+
+        # Apply activation function across all networks in parallel
+        return self.activation_function.batch_forward(self.propagating_values)
+
+    def mutate(self, weight_mutation_rate=0.1, weight_mutation_strength=0.1, bias_mutation_rate=0.1, bias_mutation_strength=0.1, cooldown_mutation_rate=0.1, cooldown_mutation_strength=1):
+        super().mutate(weight_mutation_rate, weight_mutation_strength, bias_mutation_rate, bias_mutation_strength)
+        
+        if np.random.uniform(0, 1) < weight_mutation_rate:
+            self.w2 += np.random.uniform(-weight_mutation_strength, weight_mutation_strength, (self.neuron_count, self.neuron_count, self.batch_size))
+        
+        if np.random.uniform(0, 1) < cooldown_mutation_rate:
+            self.initial_cooldowns += np.random.randint(-cooldown_mutation_strength, cooldown_mutation_strength, (self.neuron_count, self.batch_size))
+        
+        if np.random.uniform(0, 1) < cooldown_mutation_rate:
+            self.max_cooldowns += np.random.randint(-cooldown_mutation_strength, cooldown_mutation_strength+1, (self.neuron_count, self.batch_size))
+
+    def unbatch(self):
+        layers = [RGLayer(self.input_size, self.neuron_count, self.activation_function) for _ in range(self.batch_size)]
+        for i in range(self.batch_size):
+            layers[i].w1 = self.w1[:, :, i]
+            layers[i].w2 = self.w2[:, :, i]
+            layers[i].bias = self.bias[:, i]
+            layers[i].stored_values = self.stored_values[:, i]
+            layers[i].propagating_values = self.propagating_values[:, i]
+            layers[i].max_cooldowns = self.max_cooldowns[:, i]
+            layers[i].initial_cooldowns = self.initial_cooldowns[:, i]
+            layers[i].current_cooldowns = self.current_cooldowns[:, i]
+        return layers

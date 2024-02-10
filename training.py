@@ -1,19 +1,20 @@
-try:
-    # Try to import CuPy
-    import cupy as cp
-    # Attempt to allocate memory on a GPU to confirm its presence
-    cp.array([1])
-    # If successful, alias CuPy as np to use it as if it were NumPy
-    np = cp
-    print("Using CuPy")
-except (ImportError):
-    # If CuPy is not installed, fall back to NumPy
-    import numpy as np
-    print("CuPy not found, using NumPy")
-except (cp.cuda.runtime.CUDARuntimeError):
-    # If no GPU is found, fall back to NumPy
-    import numpy as np
-    print("No GPU found, using NumPy")
+# disabled GPU accleleration as it seems to be massively slowing it down (2 seconds without vs 83 seconds with)
+# try:
+#     # Try to import CuPy
+#     import cupy as cp
+#     # Attempt to allocate memory on a GPU to confirm its presence
+#     cp.array([1])
+#     # If successful, alias CuPy as np to use it as if it were NumPy
+#     np = cp
+#     print("Using CuPy")
+# except (ImportError):
+#     # If CuPy is not installed, fall back to NumPy
+#     import numpy as np
+#     print("CuPy not found, using NumPy")
+# except (cp.cuda.runtime.CUDARuntimeError):
+#     # If no GPU is found, fall back to NumPy
+import numpy as np
+    # print("No GPU found, using NumPy")
 
 from neural_net import NeuralNet
 from layers import Layer, RGLayer
@@ -49,7 +50,7 @@ def generate_random_sequence(num_classes, number, length=None):
     sequence = []
     for i in range(number):
         next_value = np.random.randint(0, num_classes)
-        while len(sequence) > 0 and sequence[-1] == next_value:
+        while len(sequence) > 0 and sequence[-1][1] == next_value:
             next_value = np.random.randint(0, num_classes)
         if length is None:
             length = np.random.randint(1, 10)
@@ -121,7 +122,8 @@ def score_output(output, sequence, correct_length_score=0.25, correct_value_scor
     return score_full_sequence(sequence_output, sequence, correct_length_score, correct_value_score)
 
 def sigmoid_forward(x):
-    return 1/(1+np.exp(-x))
+    clipped_x = np.clip(x, -709, 709)
+    return 1/(1+np.exp(-clipped_x))
 
 def softmax_forward(x):
     exps = np.exp(x - np.max(x))
@@ -193,12 +195,13 @@ class Training:
         # currently inputs dimension is (batch_size, sequence_length, num_classes)
         # we need to change it to (sequence_length, batch_size, num_classes)
         inputs = np.swapaxes(inputs, 0, 1)
-
+        inputs = np.asarray(inputs)
         #initialize scores with 0s
         scores = np.zeros(self.network_count)
         for i, network in enumerate(self.networks):
-            network.reset_batch(batch_size)
+            network.initialize(batch_size)
             output = network.batch_forward_n_times(inputs, ticks)
+            print(f"Training network {i+1}/{self.network_count}", end="\r")
             # remove first 25 outputs
             output = output[25:]
             total_score = 0
@@ -207,12 +210,16 @@ class Training:
             average_score = total_score / batch_size
             scores[i] += average_score
         sorted_indices = np.argsort(scores)
-        best_score = scores[sorted_indices[-1]]
-        best_network = self.networks[sorted_indices[-1]]
-        worst_score = scores[sorted_indices[0]]
+        best_index = int(sorted_indices[-1])  # Convert the last index to an integer
+        worst_index = int(sorted_indices[0])  # Convert the first index to an integer
+        best_score = scores[best_index]
+        best_network = self.networks[best_index]
+        worst_score = scores[worst_index]
         # remove the worst networks and replace them with the best ones
         for i in range(int(elimination_rate * self.network_count)):
-            self.networks[sorted_indices[i]] = self.networks[sorted_indices[-i-1]].copy()
+            a = int(sorted_indices[i])
+            b = int(sorted_indices[-i-1])
+            self.networks[a] = self.networks[b].copy()
 
         # mutate the networks
         for network in self.networks:
