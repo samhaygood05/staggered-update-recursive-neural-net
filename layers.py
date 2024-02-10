@@ -12,7 +12,6 @@ except (cp.cuda.runtime.CUDARuntimeError):
     # If no GPU is found, fall back to NumPy
     import numpy as np
 
-
 class Layer:
     """
     Represents a layer in a neural network.
@@ -32,6 +31,18 @@ class Layer:
 
         self.w1 = np.random.uniform(-1, 1, (input_size, neuron_count))
         self.bias = np.random.uniform(-1, 1, neuron_count)
+
+    def copy(self):
+        """
+        Creates a copy of the layer.
+
+        Returns:
+            Layer: A new layer with the same attributes as the original.
+        """
+        new_layer = Layer(self.input_size, self.neuron_count, self.activation_function)
+        new_layer.w1 = self.w1.copy()
+        new_layer.bias = self.bias.copy()
+        return new_layer
 
     def initialize(self, batch_size=None):
         """
@@ -130,6 +141,24 @@ class RGLayer(Layer):
         self.initial_cooldowns = np.random.randint(0, 10, neuron_count)
         self.current_cooldowns = self.initial_cooldowns.copy()
 
+    def copy(self):
+        """
+        Creates a copy of the layer.
+
+        Returns:
+            RGLayer: A new layer with the same attributes as the original.
+        """
+        new_layer = RGLayer(self.input_size, self.neuron_count, self.activation_function)
+        new_layer.w1 = self.w1.copy()
+        new_layer.w2 = self.w2.copy()
+        new_layer.bias = self.bias.copy()
+        new_layer.stored_values = self.stored_values.copy()
+        new_layer.propagating_values = self.propagating_values.copy()
+        new_layer.max_cooldowns = self.max_cooldowns.copy()
+        new_layer.initial_cooldowns = self.initial_cooldowns.copy()
+        new_layer.current_cooldowns = self.current_cooldowns.copy()
+        return new_layer
+
     def initialize(self, batch_size=None):
         """
         Initializes the neural network by setting the initial values for stored values, propagating values, and cooldowns.
@@ -190,9 +219,9 @@ class RGLayer(Layer):
         if value.shape[1] != self.input_size:
             raise ValueError("Input size does not match layer input size")
         # for neurons whose cooldown is 0, move the stored value to the propagating value
-        self.propagating_values[self.current_cooldowns == 0] = self.stored_values[self.current_cooldowns == 0]
+        self.propagating_values[:, self.current_cooldowns == 0] = self.stored_values[:, self.current_cooldowns == 0]
         # for neurons whose cooldown is 0, update the stored value
-        self.stored_values[self.current_cooldowns == 0] = np.dot(value, self.w1[:, self.current_cooldowns == 0]) + np.dot(self.propagating_values, self.w2[:, self.current_cooldowns == 0]) + self.bias[self.current_cooldowns == 0]
+        self.stored_values[:, self.current_cooldowns == 0] = np.dot(value, self.w1[:, self.current_cooldowns == 0]) + np.dot(self.propagating_values, self.w2[:, self.current_cooldowns == 0]) + self.bias[self.current_cooldowns == 0]
         # decrement the cooldowns
         self.current_cooldowns -= 1
         # for neurons whose cooldown is -1, reset the cooldown to the max cooldown

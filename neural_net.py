@@ -38,6 +38,18 @@ class NeuralNet:
         self.layers = [layer[1](layer_sizes[i], layer_sizes[i+1], layer[2]) for i, layer in enumerate(layers)]
         self.output_size = layer_sizes[-1]
 
+    def copy(self):
+        """
+        Creates a copy of the neural network.
+
+        Returns:
+            NeuralNet: A copy of the neural network.
+        """
+        new_net = NeuralNet(self.input_size, *[(layer.neuron_count, layer.__class__, layer.activation_function) for layer in self.layers])
+        for i, layer in enumerate(new_net.layers):
+            layer = self.layers[i].copy()
+        return new_net
+
     def initialize(self, batch_size=None):
         """
         Initializes the neural network by calling the initialize method of each layer.
