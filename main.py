@@ -6,7 +6,8 @@ if __name__ == "__main__":
     from activation import Activation
     import matplotlib.pyplot as plt
 
-
     simutation = Training()
 
-    best_scores, worst_scores, best_network = simutation.train_n_times_batch(5000, 250)
+    best_scores, worst_scores, best_network = simutation.train_n_times_batch_parallel(10, 250)
+    print()
+    best_scores, worst_scores, best_network = simutation.train_n_times_batch(10, 250)
