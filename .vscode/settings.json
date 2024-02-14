@@ -1,0 +1,14 @@
+{
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "editor.formatOnSave": true,
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "off",
+    "mypy-type-checker.reportingScope": "workspace",
+    "mypy-type-checker.preferDaemon": true,
+    "mypy-type-checker.args": [
+        "--enable-incomplete-features=Unpack"
+    ],
+    "mypy-type-checker.importStrategy": "fromEnvironment"
+}
