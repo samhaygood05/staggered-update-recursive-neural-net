@@ -9,5 +9,3 @@ if __name__ == "__main__":
     simutation = Training()
 
     best_scores, worst_scores, best_network = simutation.train_n_times_batch_parallel(10, 250)
-    print()
-    best_scores, worst_scores, best_network = simutation.train_n_times_batch(10, 250)

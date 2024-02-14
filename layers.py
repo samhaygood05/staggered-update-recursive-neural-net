@@ -11,7 +11,7 @@
 # except (cp.cuda.runtime.CUDARuntimeError):
 #     # If no GPU is found, fall back to NumPy
 import numpy as np
-from typing import Type, Optional, Self
+from typing import Type, Optional, Self, override
 from activation import Activation
 
 class Layer:
@@ -119,6 +119,42 @@ class Layer:
         new_layer.w1 = np.where(np.random.randint(0, 2, (self.input_size, self.neuron_count)), self.w1, other.w1)
         new_layer.bias = np.where(np.random.randint(0, 2, self.neuron_count), self.bias, other.bias)
         return new_layer
+    
+    def get_weights(self, nice_names: bool = False) -> dict:
+        """
+        Returns the weights of the layer.
+
+        Parameters:
+        - nice_names (bool): If True, returns the weights with nice names. 
+                     If False, returns the weights with default names.
+
+        Returns:
+        - dict: A dictionary containing the weights of the layer.
+        """
+        w1_name = "Input → Layer Weights" if nice_names else "w1"
+
+        return {w1_name: self.w1}
+    
+    def get_biases(self) -> np.ndarray:
+        """
+        Returns the biases of the layer.
+
+        Returns:
+            np.ndarray: The biases of the layer.
+        """
+        return self.bias
+    
+    def get_other(self, nice_names: bool = False) -> dict:
+        """
+        Returns a dictionary containing other information. This method is here to be overridden by subclasses.
+
+        Parameters:
+        - nice_names (bool): If True, returns nice names for the information.
+
+        Returns:
+        - dict: A dictionary containing other information.
+        """
+        return {}
 
 class RGLayer(Layer):
     """
@@ -144,6 +180,7 @@ class RGLayer(Layer):
         self.initial_cooldowns = np.random.randint(0, 10, neuron_count)
         self.current_cooldowns = self.initial_cooldowns.copy()
 
+    @override
     def copy(self) -> 'RGLayer':
         """
         Creates a copy of the layer.
@@ -162,6 +199,7 @@ class RGLayer(Layer):
         new_layer.current_cooldowns = self.current_cooldowns.copy()
         return new_layer
 
+    @override
     def initialize(self, batch_size: Optional[int] = None) -> None:
         """
         Initializes the neural network by setting the initial values for stored values, propagating values, and cooldowns.
@@ -181,6 +219,7 @@ class RGLayer(Layer):
             self.propagating_values = np.zeros((batch_size, self.neuron_count))
         self.current_cooldowns = self.initial_cooldowns.copy()
 
+    @override
     def forward(self, value: np.ndarray) -> np.ndarray:
         """
         Performs the forward pass of the layer.
@@ -205,6 +244,7 @@ class RGLayer(Layer):
         # return the activation function applied to the propagating values
         return self.activation_function.forward(self.propagating_values)
     
+    @override
     def batch_forward(self, value: np.ndarray) -> np.ndarray:
         """
         Perform a forward pass for a batch of input values through the layer.
@@ -232,6 +272,7 @@ class RGLayer(Layer):
         # return the activation function applied to the propagating values
         return self.activation_function.batch_forward(self.propagating_values)
 
+    @override
     def mutate(self, weight_mutation_rate: float = 0.1, weight_mutation_strength: float = 0.1, bias_mutation_rate: float = 0.1, bias_mutation_strength: float = 0.1, **mutations: float | int) -> None:
         """
         Mutates the layer's weights, biases, and cooldowns.
@@ -275,3 +316,35 @@ class RGLayer(Layer):
         new_layer.initial_cooldowns = np.where(np.random.randint(0, 2, self.neuron_count), self.initial_cooldowns, other.initial_cooldowns)
         new_layer.max_cooldowns = np.where(np.random.randint(0, 2, self.neuron_count), self.max_cooldowns, other.max_cooldowns)
         return new_layer
+    
+    @override
+    def get_weights(self, nice_names: bool = False) -> dict:
+        """
+        Returns the weights of the layer.
+
+        Parameters:
+        - nice_names (bool): If True, returns the weights with nice names. 
+                     If False, returns the weights with default names.
+
+        Returns:
+        - dict: A dictionary containing the weights of the layer.
+        """
+        w1_name = "Input → Layer Weights" if nice_names else "w1"
+        w2_name = "Layer → Layer Weights" if nice_names else "w2"
+
+        return {w1_name: self.w1, w2_name: self.w2}
+    
+    @override
+    def get_other(self, nice_names: bool = False) -> dict:
+        """
+        Returns a dictionary containing other information.
+
+        Parameters:
+        - nice_names (bool): If True, returns nice names for the information.
+
+        Returns:
+        - dict: A dictionary containing other information.
+        """
+        init_cooldown_name = "Initial Cooldowns" if nice_names else "initial_cooldowns"
+        max_cooldown_name = "Max Cooldowns" if nice_names else "max_cooldowns"
+        return {init_cooldown_name: self.initial_cooldowns, max_cooldown_name: self.max_cooldowns}
